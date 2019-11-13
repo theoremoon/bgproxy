@@ -1,0 +1,16 @@
+syntax = "proto3";
+package pb;
+
+service BGProxyService {
+  rpc SetGreen(Target) returns (Result);
+}
+
+message Target {
+  string url = 1;
+  int32 expected_status = 2;
+  int32 healthcheck_interval = 3;
+  int32 waiting_time = 4;
+}
+message Result {
+  string msg = 1;
+}
