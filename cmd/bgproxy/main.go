@@ -1,7 +1,8 @@
 package main
 
-//go:generate protoc --go_out=plugins=grpc:pb bgproxy.proto
+//go:generate protoc --proto_path=../../ --go_out=plugins=grpc:../../pb bgproxy.proto
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -10,20 +11,30 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
+var (
+	logger = log.New(os.Stderr, "bgproxy:", log.Flags())
+)
+
 type target struct {
 	Url            *url.URL
 	ExpectedStatus int
+	UnhealthyLimit int
 	CheckInterval  time.Duration
 	WaitToDeploy   time.Duration
+	StopCommand    string
+	DeployedAt     time.Time
 }
 
 func (t *target) Check() bool {
@@ -35,6 +46,36 @@ func (t *target) Check() bool {
 		return false
 	}
 	return true
+}
+
+/// Stop stops the target
+func (t *target) Stop() error {
+	if t.StopCommand == "" {
+		return nil
+	}
+
+	cmd := exec.Command("sh", "-c", t.StopCommand)
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		s := bufio.NewScanner(stdout)
+		for s.Scan() {
+			logger.Println(s.Text())
+		}
+	}()
+	go func() {
+		s := bufio.NewScanner(stderr)
+		for s.Scan() {
+			logger.Println(s.Text())
+		}
+	}()
+	return cmd.Wait()
 }
 
 type service struct {
@@ -53,12 +94,15 @@ func (s *service) Deploy() {
 	ticker := time.NewTicker(s.Green.CheckInterval)
 	defer ticker.Stop()
 
+	unhealthyCount := 0
+
 rollback:
 	for {
 		select {
 		case <-deployTicker.C:
 			// do deploy and exit
-			log.Println("Replacing...")
+			logger.Println("Replacing...")
+			go s.Blue.Stop()
 			s.Lock()
 			s.Blue = s.Green
 			s.Green = nil
@@ -68,20 +112,25 @@ rollback:
 
 		case <-ticker.C:
 			// check the health
-			if s.Green.Check() == false {
-				log.Println("unhealthy")
-				break rollback
+			if s.Green.Check() {
+				unhealthyCount = 0
+			} else {
+				logger.Println("unhealthy")
+				unhealthyCount++
+				if unhealthyCount >= s.Green.UnhealthyLimit {
+					break rollback
+				}
 			}
-
 		case <-s.cancel.Done():
 			// cancel
-			log.Println("cancelled")
+			logger.Println("cancelled")
 			break rollback
 		}
 	}
 
 	// roll back
-	log.Println("Rolling back...")
+	logger.Println("Rolling back...")
+	go s.Green.Stop()
 	s.Lock()
 	s.Green = nil
 	s.cancel = nil
@@ -90,7 +139,7 @@ rollback:
 
 func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, error) {
 	if s.Green != nil {
-		log.Println("to be implemented")
+		logger.Println("to be implemented")
 	}
 	url, err := url.Parse(req.GetUrl())
 	if err != nil {
@@ -100,8 +149,11 @@ func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, err
 	s.Green = &target{
 		Url:            url,
 		ExpectedStatus: int(req.GetExpectedStatus()),
+		UnhealthyLimit: int(req.GetUnhealthyLimit()),
 		CheckInterval:  time.Duration(req.GetHealthcheckInterval()) * time.Second,
 		WaitToDeploy:   time.Duration(req.GetWaitingTime()) * time.Second,
+		StopCommand:    req.GetStopCommand(),
+		DeployedAt:     time.Now(),
 	}
 	s.cancel = context.Background()
 	s.Unlock()
@@ -111,12 +163,24 @@ func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, err
 		Msg: "OK",
 	}, nil
 }
+func (s *service) Rollback(ctx context.Context, req *pb.Empty) (*pb.Result, error) {
+	if s.cancel == nil {
+		return &pb.Result{
+			Msg: "Green doesn't running",
+		}, nil
+	}
+	s.cancel.Done()
+	return &pb.Result{
+		Msg: "Rolling back...",
+	}, nil
+}
 
 func run() error {
 	// parse command line
 	addr := flag.String("addr", "", "the host and port address to listen and serve")
 	blueaddr := flag.String("blue", "", "the url to listen and serve")
-	grpc_socket := flag.String("sock", "unix:/tmp/pbproxy.sock", "socket listening for gRPC server")
+	bluestop := flag.String("stop", "", "how to stop the blue server")
+	grpc_socket := flag.String("sock", constant.Sock, "socket listening for gRPC server")
 	flag.Parse()
 
 	if *addr == "" {
@@ -124,6 +188,9 @@ func run() error {
 	}
 	if *blueaddr == "" {
 		return errors.New("the argument [blue] is required")
+	}
+	if *bluestop == "" {
+		return errors.New("the argument [stop] is required")
 	}
 
 	// split grpc_socket into grpc_net, grpc_addr
@@ -139,9 +206,9 @@ func run() error {
 	}
 	service := &service{
 		Blue: &target{
-			Url:            url,
-			ExpectedStatus: http.StatusOK,
-			CheckInterval:  5 * time.Second,
+			Url:         url,
+			StopCommand: *bluestop,
+			DeployedAt:  time.Now(),
 		},
 		Green:  nil,
 		cancel: nil,
@@ -189,5 +256,5 @@ func run() error {
 }
 
 func main() {
-	log.Fatal(run())
+	logger.Fatal(run())
 }

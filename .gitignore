@@ -1,2 +1,2 @@
-bgproxy
-*.pb.go
+/bgproxy
+/bgproxyctl
