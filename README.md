@@ -19,7 +19,7 @@ Situation:
 - We may replace the server with updated one
 
 ```
-$ sudo bgproxy -addr 0.0.0.0:80 -*blue* http://localhost:8888/ -stop "kill \$(ps -ao cmd,pid|grep '^php -S localhost:8888'|awk '{print \$NF}')"
+$ sudo bgproxy -addr 0.0.0.0:80 -blue http://localhost:8888/ -stop "kill \$(ps -ao cmd,pid|grep '^php -S localhost:8888'|awk '{print \$NF}')"
 bgproxy:2019/11/15 00:17:21 Start
 ...
 ```
@@ -32,7 +32,7 @@ Now we are serving the *blue* server at `:80`.
 Next, we want to release new server (*green*). Let's up the server listening on `localhost:8889`. And order `bgproxy` to set new *green* server.
 
 ```
-$ bgproxyctl *green* -addr http://localhost:8889/ -stop "kill \$(ps -ao cmd,pid|grep '^php -S localhost:8888'|awk '{print \$NF}')"
+$ bgproxyctl green -addr http://localhost:8889/ -stop "kill \$(ps -ao cmd,pid|grep '^php -S localhost:8888'|awk '{print \$NF}')"
 OK
 ```
 
