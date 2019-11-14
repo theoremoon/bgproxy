@@ -84,7 +84,7 @@ func setGreen() error {
 	stop := set.String("stop", "", "command to stop the green server when replaced or rolled back")
 	status := set.Int("status", http.StatusOK, "address of green server to check the its health")
 	limit := set.Int("limit", 5, "maximum unhealthy limit")
-	interval := set.Int("interval", 200, "expected http status code")
+	interval := set.Int("interval", 5, "expected http status code")
 	wait := set.Int("wait", 3600, "time to wait for replacing green into blue")
 	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -82,10 +84,10 @@ type service struct {
 	sync.Mutex
 	Blue   *target
 	Green  *target
-	cancel context.Context
+	cancel *context.CancelFunc
 }
 
-func (s *service) Deploy() {
+func (s *service) Deploy(ctx context.Context) {
 	if s.Green == nil {
 		return
 	}
@@ -95,6 +97,7 @@ func (s *service) Deploy() {
 	defer ticker.Stop()
 
 	unhealthyCount := 0
+	logger.Println("Green registered")
 
 rollback:
 	for {
@@ -102,12 +105,14 @@ rollback:
 		case <-deployTicker.C:
 			// do deploy and exit
 			logger.Println("Replacing...")
+			logger.Println("Stopping blue...")
 			go s.Blue.Stop()
 			s.Lock()
 			s.Blue = s.Green
 			s.Green = nil
 			s.cancel = nil
 			s.Unlock()
+			logger.Println("Done")
 			return
 
 		case <-ticker.C:
@@ -115,26 +120,28 @@ rollback:
 			if s.Green.Check() {
 				unhealthyCount = 0
 			} else {
-				logger.Println("unhealthy")
+				logger.Println("Unhealthy")
 				unhealthyCount++
 				if unhealthyCount >= s.Green.UnhealthyLimit {
 					break rollback
 				}
 			}
-		case <-s.cancel.Done():
+		case <-ctx.Done():
 			// cancel
-			logger.Println("cancelled")
+			logger.Println("Cancelled")
 			break rollback
 		}
 	}
 
 	// roll back
 	logger.Println("Rolling back...")
+	logger.Println("Stopping green...")
 	go s.Green.Stop()
 	s.Lock()
 	s.Green = nil
 	s.cancel = nil
 	s.Unlock()
+	logger.Println("Done")
 }
 
 func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, error) {
@@ -145,6 +152,8 @@ func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, err
 	if err != nil {
 		return nil, err
 	}
+	deployCtx, cancel := context.WithCancel(context.Background())
+
 	s.Lock()
 	s.Green = &target{
 		Url:            url,
@@ -155,9 +164,9 @@ func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, err
 		StopCommand:    req.GetStopCommand(),
 		DeployedAt:     time.Now(),
 	}
-	s.cancel = context.Background()
+	s.cancel = &cancel
 	s.Unlock()
-	go s.Deploy()
+	go s.Deploy(deployCtx)
 
 	return &pb.Result{
 		Msg: "OK",
@@ -169,10 +178,28 @@ func (s *service) Rollback(ctx context.Context, req *pb.Empty) (*pb.Result, erro
 			Msg: "Green doesn't running",
 		}, nil
 	}
-	s.cancel.Done()
+	(*s.cancel)()
 	return &pb.Result{
 		Msg: "Rolling back...",
 	}, nil
+}
+
+var (
+	helpStr = fmt.Sprintf(`
+bgproxy
+  Usage:
+  - bgproxy -addr localhost:9999 -blue http://localhost:8888/ -stop "docker stop blue"
+
+  Options:
+  - addr  (required)  address to be listened by this proxy
+  - blue  (required)  initial blue url to pass the request
+  - stop  (required)  how to stop the blue server when replaced it with green.
+  - sock  (optional)  socket listening by gRPC server. default is %s
+`, constant.Sock)
+)
+
+func help() {
+	fmt.Println(helpStr)
 }
 
 func run() error {
@@ -183,14 +210,9 @@ func run() error {
 	grpc_socket := flag.String("sock", constant.Sock, "socket listening for gRPC server")
 	flag.Parse()
 
-	if *addr == "" {
-		return errors.New("the argument [addr] is required")
-	}
-	if *blueaddr == "" {
-		return errors.New("the argument [blue] is required")
-	}
-	if *bluestop == "" {
-		return errors.New("the argument [stop] is required")
+	if *addr == "" || *blueaddr == "" || *bluestop == "" {
+		help()
+		return nil
 	}
 
 	// split grpc_socket into grpc_net, grpc_addr
@@ -243,18 +265,36 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
-	// serve
+	// serve (graceful shutdown (to close unix domain socket))
 	err_ch := make(chan error)
+	sig_ch := make(chan os.Signal)
+	signal.Notify(sig_ch, os.Interrupt)
 	go func() {
 		err_ch <- server.ListenAndServe()
 	}()
 	go func() {
 		err_ch <- g_server.Serve(conn)
 	}()
-	return <-err_ch
+	logger.Println("Start")
+
+	select {
+	case err := <-err_ch:
+		return err
+	case <-sig_ch:
+		if service.cancel != nil {
+			(*service.cancel)()
+		}
+		return nil
+	}
 }
 
 func main() {
-	logger.Fatal(run())
+	err := run()
+	if err != nil {
+		logger.Fatal(err)
+	}
+	// when run returns nil, it may caused by SIGINT
+	os.Exit(130)
 }

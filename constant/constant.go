@@ -1,3 +1,3 @@
 package constant
 
-const Sock = "unix:/tmp/pbproxy.sock"
+const Sock = "unix:/tmp/bgproxy.sock"
