@@ -26,6 +26,15 @@ jobs:
             curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
             dep ensure
         fi
+        
+    - name: install protoc and go-protoc-gen
+      run: |
+        apt update -y && apt install curl unzip
+        curl -sfSL --retry 3 https://github.com/protocolbuffers/protobuf/releases/download/v3.10.1/protoc-3.10.1-linux-x86_64.zip -o protoc.zip
+        unzip protoc.zip
+        mv bin/* /usr/local/bin/
+        mv include/* /usr/local/include
+        go get -u github.com/golang/protobuf/protoc-gen-go
 
     - name: GoReleaser Action
       uses: goreleaser/goreleaser-action@v0.1.0
