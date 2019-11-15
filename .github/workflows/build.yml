@@ -29,11 +29,11 @@ jobs:
         
     - name: install protoc and go-protoc-gen
       run: |
-        apt update -y && apt install curl unzip
+        sudo apt update -y && sudo apt install curl unzip
         curl -sfSL --retry 3 https://github.com/protocolbuffers/protobuf/releases/download/v3.10.1/protoc-3.10.1-linux-x86_64.zip -o protoc.zip
         unzip protoc.zip
-        mv bin/* /usr/local/bin/
-        mv include/* /usr/local/include
+        sudo install -o root -m=0755 bin/* /usr/bin/
+        sudo install -o root -m=0600 include/* /usr/include
         go get -u github.com/golang/protobuf/protoc-gen-go
 
     - name: GoReleaser Action
