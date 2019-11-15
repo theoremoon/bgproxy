@@ -31,7 +31,9 @@ jobs:
       run: |
         curl -sfSL --retry 3 https://github.com/protocolbuffers/protobuf/releases/download/v3.10.1/protoc-3.10.1-linux-x86_64.zip -o protoc.zip
         sudo unzip protoc.zip -d /usr/
+        sudo chmod 0775 /usr/bin/protoc
         go get -u github.com/golang/protobuf/protoc-gen-go
+        sudo install --mode=0755 $GOPATH/bin/protoc-gen-go /usr/bin/
 
     - name: GoReleaser Action
       uses: goreleaser/goreleaser-action@v0.1.0
