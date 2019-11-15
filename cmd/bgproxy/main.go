@@ -273,30 +273,45 @@ func run() error {
 		Director:  director,
 		Transport: transport,
 	}
-	server := http.Server{
-		Addr:    *addr,
-		Handler: &rp,
+
+	// serve (graceful shutdown (to close unix domain socket))
+	err_ch := make(chan error)
+	sig_ch := make(chan os.Signal)
+	signal.Notify(sig_ch, os.Interrupt)
+
+	var listener net.Listener
+	if strings.HasPrefix(*addr, "unix:") {
+		listener, err = net.Listen("unix", strings.TrimPrefix(*addr, "unix:"))
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
 	}
 
-	// grpc server
-	g_server := grpc.NewServer()
-	pb.RegisterBGProxyServiceServer(g_server, service)
-	reflection.Register(g_server)
+	go func() {
+		server := http.Server{
+			Handler: &rp,
+		}
+
+		if listener != nil {
+			err_ch <- server.Serve(listener)
+		} else {
+			server.Addr = *addr
+			err_ch <- server.ListenAndServe()
+		}
+	}()
 
 	conn, err := net.Listen(grpc_split[0], grpc_split[1])
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	go func() {
+		// grpc server
+		g_server := grpc.NewServer()
+		pb.RegisterBGProxyServiceServer(g_server, service)
+		reflection.Register(g_server)
 
-	// serve (graceful shutdown (to close unix domain socket))
-	err_ch := make(chan error)
-	sig_ch := make(chan os.Signal)
-	signal.Notify(sig_ch, os.Interrupt)
-	go func() {
-		err_ch <- server.ListenAndServe()
-	}()
-	go func() {
 		err_ch <- g_server.Serve(conn)
 	}()
 	logger.Println("Start")
