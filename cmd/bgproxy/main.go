@@ -238,18 +238,40 @@ func run() error {
 
 	// reverse proxy
 	director := func(request *http.Request) {
+		target := service.Green
+		if target == nil {
+			target = service.Blue
+		}
+
 		service.Lock()
-		if service.Green != nil {
-			request.URL.Scheme = service.Green.Url.Scheme
-			request.URL.Host = service.Green.Url.Host
+		if target.Url.Scheme == "unix" {
+			request.URL.Scheme = "http" // dummy
+			request.URL.Host = "socket" // dummy
 		} else {
-			request.URL.Scheme = service.Blue.Url.Scheme
-			request.URL.Host = service.Blue.Url.Host
+			request.URL.Scheme = target.Url.Scheme
+			request.URL.Host = target.Url.Host
 		}
 		service.Unlock()
 	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			service.Lock()
+			defer service.Unlock()
+
+			target := service.Green
+			if target == nil {
+				target = service.Blue
+			}
+			if target.Url.Scheme == "unix" {
+				return net.Dial("unix", target.Url.Path)
+			} else {
+				return net.Dial("tcp", target.Url.Host)
+			}
+		},
+	}
 	rp := httputil.ReverseProxy{
-		Director: director,
+		Director:  director,
+		Transport: transport,
 	}
 	server := http.Server{
 		Addr:    *addr,
