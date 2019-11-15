@@ -29,7 +29,6 @@ jobs:
         
     - name: install protoc and go-protoc-gen
       run: |
-        sudo apt update -y && sudo apt install curl unzip
         curl -sfSL --retry 3 https://github.com/protocolbuffers/protobuf/releases/download/v3.10.1/protoc-3.10.1-linux-x86_64.zip -o protoc.zip
         unzip protoc.zip
         sudo install -o root -m=0755 bin/* /usr/bin/
