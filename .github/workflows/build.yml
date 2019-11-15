@@ -33,7 +33,7 @@ jobs:
         sudo unzip protoc.zip -d /usr/
         sudo chmod 0775 /usr/bin/protoc
         go get -u github.com/golang/protobuf/protoc-gen-go
-        sudo install --mode=0755 $GOPATH/bin/protoc-gen-go /usr/bin/
+        sudo install --mode=0755 $(go env GOPATH)/bin/protoc-gen-go /usr/bin/
 
     - name: GoReleaser Action
       uses: goreleaser/goreleaser-action@v0.1.0
