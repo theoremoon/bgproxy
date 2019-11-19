@@ -10,7 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/theoremoon/bgproxy/constant"
@@ -23,12 +26,14 @@ var (
 pbproxyctl
   Usage:
   - pbproxyctl green -addr http://localhost:8888/ -stop "docker stop green_server"
+  - pbproxyctl green -addr http://localhost:8888/ -cmd "php -S localhost:8888 -t public/"
   - pbproxyctl rollback
 
   Commands:
   - green:  set or replace the green server
     Options:
     - addr     (required)   address of green server to check the its health
+	- cmd      (optional)   command to start a green server. if use this option, stop is ignored
     - stop     (optional)   command to stop the green server when replaced or rolled back
     - status   (optional)   expected http status code. default is 200
     - limit    (optional)   maximum unhealthy limit. default is 5
@@ -78,9 +83,44 @@ func rollback() error {
 	return nil
 }
 
+func runInBackground(cmd string) (*os.Process, error) {
+	devnull, _ := os.Open(os.DevNull)
+	defer devnull.Close()
+
+	var err error
+	args := []string{"sh", "-c", cmd}
+	args[0], err = exec.LookPath(args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// ignoreing SIGHUP
+	signal.Ignore(syscall.SIGHUP)
+
+	attr := &os.ProcAttr{
+		Files: []*os.File{
+			devnull, // stdin
+			devnull,
+			devnull,
+		},
+		Sys: &syscall.SysProcAttr{
+			Setsid:     true,
+			Foreground: false,
+		},
+	}
+	p, err := os.StartProcess(args[0], args, attr)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, err
+}
+
 func setGreen() error {
+	// flags
 	set := flag.NewFlagSet("green", flag.ExitOnError)
 	addr := set.String("addr", "", "address of green server to check the its health")
+	cmd := set.String("cmd", "", "command to start a green server. if use this option, stop is ignored")
 	stop := set.String("stop", "", "command to stop the green server when replaced or rolled back")
 	status := set.Int("status", http.StatusOK, "address of green server to check the its health")
 	limit := set.Int("limit", 5, "maximum unhealthy limit")
@@ -92,6 +132,7 @@ func setGreen() error {
 		return err
 	}
 
+	// gRPC Connection
 	sock_split := strings.SplitN(*sock, ":", 2)
 	if len(sock_split) != 2 {
 		return errors.New("sock must follow the format: <protocol>:<address>")
@@ -105,9 +146,19 @@ func setGreen() error {
 		return err
 	}
 	defer conn.Close()
-
 	c := pb.NewBGProxyServiceClient(conn)
 
+	// If cmd is specified, run command in the background
+	// and set stop command to SIGKILL
+	if *cmd != "" {
+		p, err := runInBackground(*cmd)
+		if err != nil {
+			return err
+		}
+		*stop = fmt.Sprintf("kill -9 %d", p.Pid)
+	}
+
+	// Send Command
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
