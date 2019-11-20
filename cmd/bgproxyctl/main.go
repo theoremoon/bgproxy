@@ -10,12 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/theoremoon/bgproxy/common"
 	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
 	"google.golang.org/grpc"
@@ -83,39 +81,6 @@ func rollback() error {
 	return nil
 }
 
-func runInBackground(cmd string) (*os.Process, error) {
-	devnull, _ := os.Open(os.DevNull)
-	defer devnull.Close()
-
-	var err error
-	args := []string{"sh", "-c", cmd}
-	args[0], err = exec.LookPath(args[0])
-	if err != nil {
-		return nil, err
-	}
-
-	// ignoreing SIGHUP
-	signal.Ignore(syscall.SIGHUP)
-
-	attr := &os.ProcAttr{
-		Files: []*os.File{
-			devnull, // stdin
-			devnull,
-			devnull,
-		},
-		Sys: &syscall.SysProcAttr{
-			Setsid:     true,
-			Foreground: false,
-		},
-	}
-	p, err := os.StartProcess(args[0], args, attr)
-	if err != nil {
-		return nil, err
-	}
-
-	return p, err
-}
-
 func setGreen() error {
 	// flags
 	set := flag.NewFlagSet("green", flag.ExitOnError)
@@ -151,7 +116,7 @@ func setGreen() error {
 	// If cmd is specified, run command in the background
 	// and set stop command to SIGKILL
 	if *cmd != "" {
-		p, err := runInBackground(*cmd)
+		p, err := common.RunInBackground(*cmd)
 		if err != nil {
 			return err
 		}

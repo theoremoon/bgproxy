@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/theoremoon/bgproxy/common"
 	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
 	"google.golang.org/grpc"
@@ -193,7 +194,8 @@ bgproxy
   Options:
   - addr  (required)  address to be listened by this proxy
   - blue  (required)  initial blue url to pass the request
-  - stop  (required)  how to stop the blue server when replaced it with green.
+  - cmd   (selective) command to start blue server. this command runs in background.
+  - stop  (selective) how to stop the blue server when replaced it with green.
   - sock  (optional)  socket listening by gRPC server. default is %s
 `, constant.Sock)
 )
@@ -205,12 +207,13 @@ func help() {
 func run() error {
 	// parse command line
 	addr := flag.String("addr", "", "the host and port address to listen and serve")
+	bluecmd := flag.String("cmd", "", "command to start blue server")
 	blueaddr := flag.String("blue", "", "the url to listen and serve")
 	bluestop := flag.String("stop", "", "how to stop the blue server")
 	grpc_socket := flag.String("sock", constant.Sock, "socket listening for gRPC server")
 	flag.Parse()
 
-	if *addr == "" || *blueaddr == "" || *bluestop == "" {
+	if *addr == "" || *blueaddr == "" || (*bluecmd == "" && *bluestop == "") {
 		help()
 		return nil
 	}
@@ -220,6 +223,13 @@ func run() error {
 	if len(grpc_split) != 2 {
 		return errors.New("-sock option must follow the format <network:address>")
 	}
+
+	// if cmd is specified, launch it and set stop command
+	p, err := common.RunInBackground(*bluecmd)
+	if err != nil {
+		return err
+	}
+	*bluestop = fmt.Sprintf("kill -9 %d", p.Pid)
 
 	// blue-green
 	url, err := url.Parse(*blueaddr)
