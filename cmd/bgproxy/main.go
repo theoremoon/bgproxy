@@ -314,11 +314,15 @@ func run() error {
 
 	var listener net.Listener
 	if strings.HasPrefix(*addr, "unix:") {
-		listener, err = net.Listen("unix", strings.TrimPrefix(*addr, "unix:"))
+		socket := strings.TrimPrefix(*addr, "unix:")
+		listener, err = net.Listen("unix", socket)
 		if err != nil {
 			return err
 		}
 		defer listener.Close()
+		if err := os.Chmod(socket, 0777); err != nil {
+			return err
+		}
 	}
 
 	go func() {
@@ -339,6 +343,12 @@ func run() error {
 		return err
 	}
 	defer conn.Close()
+	if grpc_split[0] == "unix" {
+		if err := os.Chmod(grpc_split[0], 0777); err != nil {
+			return err
+		}
+	}
+
 	go func() {
 		// grpc server
 		g_server := grpc.NewServer()
