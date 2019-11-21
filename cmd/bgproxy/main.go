@@ -143,7 +143,7 @@ rollback:
 
 		case <-ticker.C:
 			// check the health
-			if err := s.Green.Check(); err != nil {
+			if err := s.Green.Check(); err == nil {
 				unhealthyCount = 0
 			} else {
 				logger.Println("Unhealthy: " + err.Error())
