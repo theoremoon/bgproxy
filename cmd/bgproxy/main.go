@@ -344,7 +344,7 @@ func run() error {
 	}
 	defer conn.Close()
 	if grpc_split[0] == "unix" {
-		if err := os.Chmod(grpc_split[0], 0777); err != nil {
+		if err := os.Chmod(grpc_split[1], 0777); err != nil {
 			return err
 		}
 	}
