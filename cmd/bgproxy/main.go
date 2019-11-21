@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/theoremoon/bgproxy/common"
@@ -40,15 +41,39 @@ type target struct {
 	DeployedAt     time.Time
 }
 
-func (t *target) Check() (bool, string) {
-	r, err := http.Get(t.Url.String())
+func (t *target) Check() error {
+	httpc := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if t.Url.Scheme == "unix" {
+					// unix socket forms unix:<socket path>:<url path>
+					path := strings.SplitN(t.Url.Path, ":", 2)
+					return net.Dial("unix", path[0])
+				} else {
+					return net.Dial("tcp", t.Url.Host)
+				}
+			},
+		},
+	}
+
+	var r *http.Response
+	var err error
+	if t.Url.Scheme == "unix" {
+		path := strings.SplitN(t.Url.Path, ":", 2)
+		if len(path) == 0 {
+			return fmt.Errorf("Invalid url format: %s", t.Url.String())
+		}
+		r, err = httpc.Get("http://unix/" + path[1])
+	} else {
+		r, err = httpc.Get(t.Url.String())
+	}
 	if err != nil {
-		return false, err.Error()
+		return err
 	}
 	if r.StatusCode != t.ExpectedStatus {
-		return false, fmt.Sprintf("Returned status code: %d", r.StatusCode)
+		return fmt.Errorf("Returned status code: %d", r.StatusCode)
 	}
-	return true, ""
+	return nil
 }
 
 /// Stop stops the target
@@ -118,10 +143,10 @@ rollback:
 
 		case <-ticker.C:
 			// check the health
-			if ok, reason := s.Green.Check(); ok {
+			if err := s.Green.Check(); err != nil {
 				unhealthyCount = 0
 			} else {
-				logger.Println("Unhealthy: " + reason)
+				logger.Println("Unhealthy: " + err.Error())
 				unhealthyCount++
 				if unhealthyCount >= s.Green.UnhealthyLimit {
 					break rollback
@@ -252,7 +277,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	*bluestop = fmt.Sprintf("kill -9 %d", p.Pid)
+	*bluestop = fmt.Sprintf("kill -15 %d", p.Pid)
 
 	// blue-green
 	url, err := url.Parse(*blueaddr)
@@ -279,7 +304,7 @@ func run() error {
 		service.Lock()
 		if target.Url.Scheme == "unix" {
 			request.URL.Scheme = "http" // dummy
-			request.URL.Host = "socket" // dummy
+			request.URL.Host = "unix"   // dummy
 		} else {
 			request.URL.Scheme = target.Url.Scheme
 			request.URL.Host = target.Url.Host
@@ -311,6 +336,7 @@ func run() error {
 	err_ch := make(chan error)
 	sig_ch := make(chan os.Signal)
 	signal.Notify(sig_ch, os.Interrupt)
+	signal.Notify(sig_ch, syscall.SIGTERM)
 
 	var listener net.Listener
 	if strings.HasPrefix(*addr, "unix:") {
@@ -363,9 +389,11 @@ func run() error {
 	case err := <-err_ch:
 		return err
 	case <-sig_ch:
+		logger.Println("Signal Received")
 		if service.cancel != nil {
 			(*service.cancel)()
 		}
+		service.Blue.Stop()
 		return nil
 	}
 }
@@ -375,6 +403,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	// when run returns nil, it may caused by SIGINT
+	// when run returns nil, it may caused by SIGINT/SIGTERM
 	os.Exit(130)
 }
