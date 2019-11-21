@@ -40,15 +40,15 @@ type target struct {
 	DeployedAt     time.Time
 }
 
-func (t *target) Check() bool {
+func (t *target) Check() (bool, string) {
 	r, err := http.Get(t.Url.String())
 	if err != nil {
-		return false
+		return false, err.Error()
 	}
 	if r.StatusCode != t.ExpectedStatus {
-		return false
+		return false, fmt.Sprintf("Returned status code: %d", r.StatusCode)
 	}
-	return true
+	return true, ""
 }
 
 /// Stop stops the target
@@ -118,10 +118,10 @@ rollback:
 
 		case <-ticker.C:
 			// check the health
-			if s.Green.Check() {
+			if ok, reason := s.Green.Check(); ok {
 				unhealthyCount = 0
 			} else {
-				logger.Println("Unhealthy")
+				logger.Println("Unhealthy: " + reason)
 				unhealthyCount++
 				if unhealthyCount >= s.Green.UnhealthyLimit {
 					break rollback
@@ -147,7 +147,9 @@ rollback:
 
 func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, error) {
 	if s.Green != nil {
-		logger.Println("to be implemented")
+		return &bp.Result{
+			Msg: "Green exists. First roll it back",
+		}, nil
 	}
 	url, err := url.Parse(req.GetUrl())
 	if err != nil {
