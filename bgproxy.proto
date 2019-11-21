@@ -4,6 +4,7 @@ package pb;
 service BGProxyService {
   rpc SetGreen(Target) returns (Result);
   rpc Rollback(Empty) returns (Result);
+  rpc GetStatus(Empty) returns (Result);
 }
 
 message Result {

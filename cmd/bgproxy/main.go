@@ -147,7 +147,7 @@ rollback:
 
 func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, error) {
 	if s.Green != nil {
-		return &bp.Result{
+		return &pb.Result{
 			Msg: "Green exists. First roll it back",
 		}, nil
 	}
@@ -175,6 +175,27 @@ func (s *service) SetGreen(ctx context.Context, req *pb.Target) (*pb.Result, err
 		Msg: "OK",
 	}, nil
 }
+
+func (s *service) GetStatus(ctx context.Context, req *pb.Empty) (*pb.Result, error) {
+	msg := "Blue\n"
+	msg += fmt.Sprintf("\tlistening: %v\n", s.Blue.Url.String())
+	msg += fmt.Sprintf("\tdeployed at: %v\n", s.Blue.DeployedAt)
+	msg += fmt.Sprintf("\tto stop: %s\n", s.Blue.StopCommand)
+
+	if s.Green != nil {
+		msg += "\n"
+		msg += "Green\n"
+		msg += fmt.Sprintf("\tlistening: %v\n", s.Green.Url.String())
+		msg += fmt.Sprintf("\tdeployed at: %v\n", s.Green.DeployedAt)
+		msg += fmt.Sprintf("\tuntil be blue: %v\n", s.Green.WaitToDeploy-time.Now().Sub(s.Green.DeployedAt))
+		msg += fmt.Sprintf("\tto stop: %s\n", s.Green.StopCommand)
+	}
+
+	return &pb.Result{
+		Msg: msg,
+	}, nil
+}
+
 func (s *service) Rollback(ctx context.Context, req *pb.Empty) (*pb.Result, error) {
 	if s.cancel == nil {
 		return &pb.Result{
