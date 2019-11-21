@@ -25,13 +25,14 @@ pbproxyctl
   Usage:
   - pbproxyctl green -addr http://localhost:8888/ -stop "docker stop green_server"
   - pbproxyctl green -addr http://localhost:8888/ -cmd "php -S localhost:8888 -t public/"
+  - pbproxyctl status
   - pbproxyctl rollback
 
   Commands:
-  - green:  set or replace the green server
+  - green:    set or replace the green server
     Options:
     - addr     (required)   address of green server to check the its health
-	- cmd      (optional)   command to start a green server. if use this option, stop is ignored
+    - cmd      (optional)   command to start a green server. if use this option, stop is ignored
     - stop     (optional)   command to stop the green server when replaced or rolled back
     - status   (optional)   expected http status code. default is 200
     - limit    (optional)   maximum unhealthy limit. default is 5
@@ -39,6 +40,7 @@ pbproxyctl
     - wait     (optional)   time to wait for replacing green into blue. default is 3600
 
   - rollback: cancel the green server and continue to use blue server
+  - status:   get the current proxy status
 
   Global Options:
   - sock   (optional)           bgproxy server listening socket. default is %s
@@ -49,6 +51,42 @@ func help() {
 	fmt.Println(helpStr)
 }
 
+func dial(sock string) (*grpc.ClientConn, error) {
+	sock_split := strings.SplitN(sock, ":", 2)
+	if len(sock_split) != 2 {
+		return nil, errors.New("sock must follow the format: <protocol>:<address>")
+	}
+
+	dialer := func(a string, t time.Duration) (net.Conn, error) {
+		return net.Dial(sock_split[0], a)
+	}
+	return grpc.Dial(sock_split[1], grpc.WithInsecure(), grpc.WithDialer(dialer))
+}
+
+func getStatus() error {
+	set := flag.NewFlagSet("getstatusl", flag.ExitOnError)
+	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
+	if err := set.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+
+	conn, err := dial(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	c := pb.NewBGProxyServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	r, err := c.GetStatus(ctx, &pb.Empty{})
+	if err != nil {
+		return err
+	}
+	fmt.Println(r.GetMsg())
+	return nil
+}
+
 func rollback() error {
 	set := flag.NewFlagSet("rollback", flag.ExitOnError)
 	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
@@ -56,15 +94,7 @@ func rollback() error {
 		return err
 	}
 
-	sock_split := strings.SplitN(*sock, ":", 2)
-	if len(sock_split) != 2 {
-		return errors.New("sock must follow the format: <protocol>:<address>")
-	}
-
-	dialer := func(a string, t time.Duration) (net.Conn, error) {
-		return net.Dial(sock_split[0], a)
-	}
-	conn, err := grpc.Dial(sock_split[1], grpc.WithInsecure(), grpc.WithDialer(dialer))
+	conn, err := dial(*sock)
 	if err != nil {
 		return err
 	}
@@ -97,16 +127,7 @@ func setGreen() error {
 		return err
 	}
 
-	// gRPC Connection
-	sock_split := strings.SplitN(*sock, ":", 2)
-	if len(sock_split) != 2 {
-		return errors.New("sock must follow the format: <protocol>:<address>")
-	}
-
-	dialer := func(a string, t time.Duration) (net.Conn, error) {
-		return net.Dial(sock_split[0], a)
-	}
-	conn, err := grpc.Dial(sock_split[1], grpc.WithInsecure(), grpc.WithDialer(dialer))
+	conn, err := dial(*sock)
 	if err != nil {
 		return err
 	}
@@ -150,6 +171,11 @@ func main() {
 	}
 	if os.Args[1] == "rollback" {
 		err := rollback()
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if os.Args[1] == "status" {
+		err := getStatus()
 		if err != nil {
 			log.Fatal(err)
 		}
