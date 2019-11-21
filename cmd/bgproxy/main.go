@@ -41,7 +41,7 @@ type target struct {
 	DeployedAt     time.Time
 }
 
-func (t *target) Check() (bool, string) {
+func (t *target) Check() error {
 	httpc := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -60,17 +60,20 @@ func (t *target) Check() (bool, string) {
 	var err error
 	if t.Url.Scheme == "unix" {
 		path := strings.SplitN(t.Url.Path, ":", 2)
+		if len(path) == 0 {
+			return fmt.Errorf("Invalid url format: %s", t.Url.String())
+		}
 		r, err = httpc.Get("http://unix/" + path[1])
 	} else {
 		r, err = httpc.Get(t.Url.String())
 	}
 	if err != nil {
-		return false, err.Error()
+		return err
 	}
 	if r.StatusCode != t.ExpectedStatus {
-		return false, fmt.Sprintf("Returned status code: %d", r.StatusCode)
+		return fmt.Errorf("Returned status code: %d", r.StatusCode)
 	}
-	return true, ""
+	return nil
 }
 
 /// Stop stops the target
@@ -140,10 +143,10 @@ rollback:
 
 		case <-ticker.C:
 			// check the health
-			if ok, reason := s.Green.Check(); ok {
+			if err := s.Green.Check(); err != nil {
 				unhealthyCount = 0
 			} else {
-				logger.Println("Unhealthy: " + reason)
+				logger.Println("Unhealthy: " + err.Error())
 				unhealthyCount++
 				if unhealthyCount >= s.Green.UnhealthyLimit {
 					break rollback
