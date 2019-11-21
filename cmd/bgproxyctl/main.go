@@ -141,7 +141,11 @@ func setGreen() error {
 		if err != nil {
 			return err
 		}
-		*stop = fmt.Sprintf("kill -9 %d", p.Pid)
+		*stop = fmt.Sprintf("kill -15 %d", p.Pid)
+	}
+	if *addr == "" || *stop == "" {
+		help()
+		return nil
 	}
 
 	// Send Command
