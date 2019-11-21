@@ -321,7 +321,8 @@ func run() error {
 				target = service.Blue
 			}
 			if target.Url.Scheme == "unix" {
-				return net.Dial("unix", target.Url.Path)
+				path := strings.SplitN(target.Url.Path, ":", 2)
+				return net.Dial("unix", path[0])
 			} else {
 				return net.Dial("tcp", target.Url.Host)
 			}
