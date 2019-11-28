@@ -59,9 +59,10 @@ func (t *target) Check() error {
 	var r *http.Response
 	var err error
 	if t.Url.Scheme == "unix" {
+		// unix socket forms unix:<socket path>:<url path>
 		path := strings.SplitN(t.Url.Path, ":", 2)
 		if len(path) == 0 {
-			return fmt.Errorf("Invalid url format: %s", t.Url.String())
+			return fmt.Errorf("Invalid url format: %s (unix domain address should be formed: unix:<socket>:<url path>)", t.Url.String())
 		}
 		r, err = httpc.Get("http://unix/" + path[1])
 	} else {
