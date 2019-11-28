@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/xid"
 	"github.com/theoremoon/bgproxy/common"
 	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
@@ -253,6 +255,22 @@ func help() {
 	fmt.Println(helpStr)
 }
 
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+func (w *statusWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
 func run() error {
 	// parse command line
 	addr := flag.String("addr", "", "the host and port address to listen and serve")
@@ -355,7 +373,26 @@ func run() error {
 
 	go func() {
 		server := http.Server{
-			Handler: &rp,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				id := xid.New()
+				s, _ := json.Marshal(map[string]interface{}{
+					"RemoteAddr": r.RemoteAddr,
+					"UserAgentl": r.UserAgent(),
+					"Method":     r.Method,
+					"URI":        r.RequestURI,
+					"RequestId":  id.String(),
+				})
+				logger.Println(string(s))
+
+				sw := &statusWriter{ResponseWriter: w}
+				rp.ServeHTTP(sw, r)
+
+				s, _ = json.Marshal(map[string]interface{}{
+					"StatusCode": sw.status,
+					"RequestId":  id.String(),
+				})
+				logger.Println(string(s))
+			}),
 		}
 
 		if listener != nil {
