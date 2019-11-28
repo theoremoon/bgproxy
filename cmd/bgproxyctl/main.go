@@ -14,14 +14,13 @@ import (
 	"time"
 
 	"github.com/theoremoon/bgproxy/common"
-	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
 	"google.golang.org/grpc"
 )
 
 var (
 	helpStr = fmt.Sprintf(`
-pbproxyctl
+pbproxyctl (version: %s)
   Usage:
   - pbproxyctl green -addr http://localhost:8888/ -stop "docker stop green_server"
   - pbproxyctl green -addr http://localhost:8888/ -cmd "php -S localhost:8888 -t public/"
@@ -44,7 +43,7 @@ pbproxyctl
 
   Global Options:
   - sock   (optional)           bgproxy server listening socket. default is %s
-`, constant.Sock)
+`, common.Version, common.Sock)
 )
 
 func help() {
@@ -65,7 +64,7 @@ func dial(sock string) (*grpc.ClientConn, error) {
 
 func getStatus() error {
 	set := flag.NewFlagSet("getstatusl", flag.ExitOnError)
-	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
+	sock := set.String("sock", common.Sock, "bgproxy server litening socket")
 	if err := set.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -89,7 +88,7 @@ func getStatus() error {
 
 func rollback() error {
 	set := flag.NewFlagSet("rollback", flag.ExitOnError)
-	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
+	sock := set.String("sock", common.Sock, "bgproxy server litening socket")
 	if err := set.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -121,7 +120,7 @@ func setGreen() error {
 	limit := set.Int("limit", 5, "maximum unhealthy limit")
 	interval := set.Int("interval", 5, "expected http status code")
 	wait := set.Int("wait", 3600, "time to wait for replacing green into blue")
-	sock := set.String("sock", constant.Sock, "bgproxy server litening socket")
+	sock := set.String("sock", common.Sock, "bgproxy server litening socket")
 
 	if err := set.Parse(os.Args[2:]); err != nil {
 		return err

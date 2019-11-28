@@ -23,7 +23,6 @@ import (
 
 	"github.com/rs/xid"
 	"github.com/theoremoon/bgproxy/common"
-	"github.com/theoremoon/bgproxy/constant"
 	"github.com/theoremoon/bgproxy/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -238,7 +237,7 @@ func (s *service) Rollback(ctx context.Context, req *pb.Empty) (*pb.Result, erro
 
 var (
 	helpStr = fmt.Sprintf(`
-bgproxy
+bgproxy (version: %s)
   Usage:
   - bgproxy -addr localhost:9999 -blue http://localhost:8888/ -stop "docker stop blue"
 
@@ -248,7 +247,7 @@ bgproxy
   - cmd   (selective) command to start blue server. this command runs in background.
   - stop  (selective) how to stop the blue server when replaced it with green.
   - sock  (optional)  socket listening by gRPC server. default is %s
-`, constant.Sock)
+`, common.Version, common.Sock)
 )
 
 func help() {
@@ -277,7 +276,7 @@ func run() error {
 	bluecmd := flag.String("cmd", "", "command to start blue server")
 	blueaddr := flag.String("blue", "", "the url to listen and serve")
 	bluestop := flag.String("stop", "", "how to stop the blue server")
-	grpc_socket := flag.String("sock", constant.Sock, "socket listening for gRPC server")
+	grpc_socket := flag.String("sock", common.Sock, "socket listening for gRPC server")
 	flag.Parse()
 
 	if *addr == "" || *blueaddr == "" || (*bluecmd == "" && *bluestop == "") {
