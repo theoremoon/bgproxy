@@ -12,7 +12,7 @@ func RunInBackground(cmd string) (*os.Process, error) {
 	defer devnull.Close()
 
 	var err error
-	args := []string{"sh", "-c", cmd}
+	args := []string{"sh", "-c", "exec " + cmd}
 	args[0], err = exec.LookPath(args[0])
 	if err != nil {
 		return nil, err
